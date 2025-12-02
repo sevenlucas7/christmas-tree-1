@@ -17,16 +17,19 @@ import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
 
 // -------------------------------------------------------------
-// 🔥 第一步：在这里填入你上传到 public 文件夹的照片名字
+// 🔥 第一步：在这里填入你所有 17 张照片的名字！
 // -------------------------------------------------------------
 const MY_PHOTOS = [
   "/photo1.jpg",
   "/photo2.jpg",
   "/photo3.jpg",
-  // 记得要把照片文件拖进 CodeSandbox 左侧的 public 文件夹里！
+  // "/photo4.jpg",
+  // "/photo5.jpg",
+  // ... 继续添加直到 photo17.jpg
 ];
 
-const APP_TITLE = "TO MY LOVE"; // 你的标题
+// 🔥 第二步：标题改回 Merry Christmas
+const APP_TITLE = "MERRY CHRISTMAS";
 
 // ==========================================
 // 1. 核心算法 (保持不变)
@@ -213,7 +216,7 @@ const OrnamentParticles = ({
 };
 
 // ==========================================
-// 3. 流星系统
+// 3. 流星系统 (保持不变)
 // ==========================================
 const ShootingStar = () => {
   const ref = useRef<THREE.Mesh>(null!);
@@ -224,7 +227,7 @@ const ShootingStar = () => {
         Math.random() * 30 + 10,
         (Math.random() - 0.5) * 40 - 20
       )
-  ); // 限制范围在背景
+  );
   const speed = useRef(Math.random() * 2 + 1);
 
   useFrame((state, delta) => {
@@ -239,7 +242,7 @@ const ShootingStar = () => {
 
   return (
     <mesh ref={ref} position={startPos} rotation={[0, 0, Math.PI / 3]}>
-      <coneGeometry args={[0.05, 4, 8]} /> {/* 稍微变细一点 */}
+      <coneGeometry args={[0.05, 4, 8]} />
       <meshBasicMaterial color="#ffffff" transparent opacity={0.4} />
     </mesh>
   );
@@ -257,45 +260,99 @@ const ShootingStarsSystem = ({ mode }: { mode: string }) => {
 };
 
 // ==========================================
-// 4. 🔥修复版：树根流光溢彩🔥
+// 4. 🔥核心改进：地面流光粒子系统🔥
 // ==========================================
-const GroundRadiance = ({ mode }: { mode: string }) => {
-  const ref = useRef<THREE.Mesh>(null!);
+const GroundParticles = ({ mode }: { mode: string }) => {
+  const count = 1000;
+  const meshRef = useRef<THREE.InstancedMesh>(null!);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
   const opacity = useRef(0);
+
+  // 生成粒子初始数据：随机位置、速度和生命周期
+  const data = useMemo(
+    () =>
+      Array.from({ length: count }, () => ({
+        // 初始位置在树根附近
+        initialPos: new THREE.Vector3(
+          (Math.random() - 0.5) * 2,
+          -6.5,
+          (Math.random() - 0.5) * 2
+        ),
+        // 向外扩散的速度向量
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 2,
+          0,
+          (Math.random() - 0.5) * 2
+        )
+          .normalize()
+          .multiplyScalar(Math.random() * 1.5 + 0.5),
+        life: Math.random(), // 当前生命值 (0-1)
+        maxLife: Math.random() * 2 + 1, // 最大生命周期
+        scale: Math.random() * 0.1 + 0.05,
+      })),
+    []
+  );
+
   useFrame((state, delta) => {
-    if (!ref.current) return;
+    if (!meshRef.current) return;
     const targetOpacity = mode === "TREE_SHAPE" ? 1 : 0;
     opacity.current = THREE.MathUtils.lerp(
       opacity.current,
       targetOpacity,
       delta * 2
     );
-    const material = ref.current.material as THREE.MeshStandardMaterial;
-    material.opacity = opacity.current * 0.8;
-    material.emissiveIntensity = opacity.current * 2;
-    ref.current.visible = opacity.current > 0.01;
+    const material = meshRef.current.material as THREE.MeshStandardMaterial;
+    material.opacity = opacity.current;
+    meshRef.current.visible = opacity.current > 0.01;
+
+    data.forEach((d, i) => {
+      // 更新生命值
+      d.life += delta;
+      // 如果生命结束，重置到中心
+      if (d.life > d.maxLife) {
+        d.life = 0;
+        d.initialPos.set(
+          (Math.random() - 0.5) * 2,
+          -6.5,
+          (Math.random() - 0.5) * 2
+        );
+      }
+
+      // 计算当前位置：初始位置 + 速度 * 时间
+      const currentPos = d.initialPos
+        .clone()
+        .add(d.velocity.clone().multiplyScalar(d.life));
+
+      // 计算粒子状态：生命末期变小并消失
+      const lifeRatio = d.life / d.maxLife;
+      const currentScale = d.scale * (1 - lifeRatio); // 越往外越小
+
+      dummy.position.copy(currentPos);
+      dummy.scale.setScalar(currentScale);
+      dummy.updateMatrix();
+      meshRef.current.setMatrixAt(i, dummy.matrix);
+    });
+    meshRef.current.instanceMatrix.needsUpdate = true;
   });
 
   return (
-    // 修复：去掉 rotation 属性，让它自然平躺（ConeGeometry 默认是直立的，我们用极扁的圆锥模拟地上的光）
-    <mesh ref={ref} position={[0, -6.5, 0]}>
-      {/* 极大的半径，极小的高度，看起来就是一个地上的圆盘 */}
-      <coneGeometry args={[12, 0.2, 64]} />
+    <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
+      <sphereGeometry args={[0.1, 8, 8]} />
       <meshStandardMaterial
         color="#FFD700"
         emissive="#FFD700"
+        emissiveIntensity={2}
         transparent
         opacity={0}
-        roughness={1}
-        metalness={0}
-        depthWrite={false} // 关键：防止遮挡其他物体
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
       />
-    </mesh>
+    </instancedMesh>
   );
 };
 
 // ==========================================
-// 5. 照片交互组件
+// 5. 照片交互组件 (🔥修复点击事件🔥)
 // ==========================================
 interface PhotoProps {
   mode: string;
@@ -303,7 +360,7 @@ interface PhotoProps {
   index: number;
   total: number;
   isSelected: boolean;
-  onSelect: (index: number | null) => void;
+  onSelect: (index: number) => void; // 修改类型定义
 }
 
 const PhotoParticle = ({
@@ -386,7 +443,7 @@ const PhotoParticle = ({
           floatIntensity
     );
 
-    const focusPos = new THREE.Vector3(0, 0, camera.position.z - 6); // 稍微离镜头远一点点，防穿模
+    const focusPos = new THREE.Vector3(0, 0, camera.position.z - 6);
     ref.current.position.lerpVectors(floatingPos, focusPos, st);
 
     if (st > 0.1) {
@@ -412,9 +469,10 @@ const PhotoParticle = ({
   return (
     <mesh
       ref={ref}
+      // 🔥 核心修复：直接调用 onSelect 传递当前索引
       onClick={(e) => {
         e.stopPropagation();
-        onSelect(isSelected ? null : index);
+        onSelect(index);
       }}
       onPointerOver={() => (document.body.style.cursor = "pointer")}
       onPointerOut={() => (document.body.style.cursor = "auto")}
@@ -441,6 +499,12 @@ export default function App() {
     null
   );
 
+  // 🔥 核心修复：处理点击事件的逻辑
+  const handlePhotoSelect = (index: number) => {
+    // 如果点击的是已经选中的照片，就取消选中；否则选中新的照片
+    setSelectedPhotoIndex((prev) => (prev === index ? null : index));
+  };
+
   const handleBackgroundClick = () => {
     if (selectedPhotoIndex !== null) setSelectedPhotoIndex(null);
   };
@@ -454,7 +518,6 @@ export default function App() {
         position: "relative",
       }}
     >
-      {/* UI 界面 */}
       <div
         style={{
           position: "absolute",
@@ -511,7 +574,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* 聚焦时的黑色遮罩 */}
       <div
         onClick={handleBackgroundClick}
         style={{
@@ -556,7 +618,8 @@ export default function App() {
         <group position={[0, -3, 0]}>
           <NeedleParticles mode={mode} count={3500} />
           <OrnamentParticles mode={mode} count={1500} />
-          <GroundRadiance mode={mode} />
+          {/* 🔥 使用新的粒子地面 */}
+          <GroundParticles mode={mode} />
 
           <Suspense fallback={null}>
             {MY_PHOTOS.map((url, index) => (
@@ -567,7 +630,8 @@ export default function App() {
                 index={index}
                 total={MY_PHOTOS.length}
                 isSelected={index === selectedPhotoIndex}
-                onSelect={setSelectedPhotoIndex}
+                // 🔥 传递新的处理函数
+                onSelect={handlePhotoSelect}
               />
             ))}
           </Suspense>
