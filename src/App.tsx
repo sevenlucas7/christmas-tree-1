@@ -12,13 +12,24 @@ import {
   Environment,
   PerspectiveCamera,
   Stars,
-  Plane,
 } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
 
+// -------------------------------------------------------------
+// 🔥 第一步：在这里填入你上传到 public 文件夹的照片名字
+// -------------------------------------------------------------
+const MY_PHOTOS = [
+  "/photo1.jpg",
+  "/photo2.jpg",
+  "/photo3.jpg",
+  // 记得要把照片文件拖进 CodeSandbox 左侧的 public 文件夹里！
+];
+
+const APP_TITLE = "TO MY LOVE"; // 你的标题
+
 // ==========================================
-// 1. 核心算法与工具 (保持不变)
+// 1. 核心算法 (保持不变)
 // ==========================================
 const getPhyllotaxisPosition = (
   index: number,
@@ -56,7 +67,7 @@ const ornamentColors = [
 ];
 
 // ==========================================
-// 2. 基础粒子组件 (保持不变)
+// 2. 针叶与装饰物 (保持不变)
 // ==========================================
 const NeedleParticles = ({
   mode,
@@ -202,49 +213,43 @@ const OrnamentParticles = ({
 };
 
 // ==========================================
-// 3. 🔥新组件🔥：流星系统
+// 3. 流星系统
 // ==========================================
 const ShootingStar = () => {
   const ref = useRef<THREE.Mesh>(null!);
-  //随机起始位置和速度
   const [startPos] = useState(
     () =>
       new THREE.Vector3(
-        (Math.random() - 0.5) * 100,
-        Math.random() * 50 + 20,
-        (Math.random() - 0.5) * 100
+        (Math.random() - 0.5) * 60,
+        Math.random() * 30 + 10,
+        (Math.random() - 0.5) * 40 - 20
       )
-  );
+  ); // 限制范围在背景
   const speed = useRef(Math.random() * 2 + 1);
 
   useFrame((state, delta) => {
     if (!ref.current) return;
-    // 向下划过
-    ref.current.position.x -= speed.current * delta * 10;
-    ref.current.position.y -= speed.current * delta * 5;
-    // 飞出边界后重置
-    if (ref.current.position.y < -50) {
+    ref.current.position.x -= speed.current * delta * 8;
+    ref.current.position.y -= speed.current * delta * 4;
+    if (ref.current.position.y < -20) {
       ref.current.position.copy(startPos);
-      // 稍微随机化一下重置位置
-      ref.current.position.x += (Math.random() - 0.5) * 20;
+      ref.current.position.x += (Math.random() - 0.5) * 10;
     }
   });
 
   return (
-    // 细长的圆锥体模拟流星尾迹
     <mesh ref={ref} position={startPos} rotation={[0, 0, Math.PI / 3]}>
-      <coneGeometry args={[0.1, 5, 8]} />
-      <meshBasicMaterial color="#ffffff" transparent opacity={0.6} />
+      <coneGeometry args={[0.05, 4, 8]} /> {/* 稍微变细一点 */}
+      <meshBasicMaterial color="#ffffff" transparent opacity={0.4} />
     </mesh>
   );
 };
 
 const ShootingStarsSystem = ({ mode }: { mode: string }) => {
   if (mode !== "TREE_SHAPE") return null;
-  // 生成5颗流星
   return (
     <group>
-      {Array.from({ length: 5 }).map((_, i) => (
+      {Array.from({ length: 4 }).map((_, i) => (
         <ShootingStar key={i} />
       ))}
     </group>
@@ -252,12 +257,11 @@ const ShootingStarsSystem = ({ mode }: { mode: string }) => {
 };
 
 // ==========================================
-// 4. 🔥新组件🔥：树根流光溢彩
+// 4. 🔥修复版：树根流光溢彩🔥
 // ==========================================
 const GroundRadiance = ({ mode }: { mode: string }) => {
   const ref = useRef<THREE.Mesh>(null!);
   const opacity = useRef(0);
-
   useFrame((state, delta) => {
     if (!ref.current) return;
     const targetOpacity = mode === "TREE_SHAPE" ? 1 : 0;
@@ -267,17 +271,16 @@ const GroundRadiance = ({ mode }: { mode: string }) => {
       delta * 2
     );
     const material = ref.current.material as THREE.MeshStandardMaterial;
-    material.opacity = opacity.current;
-    material.emissiveIntensity = opacity.current * 4; // 增强发光
+    material.opacity = opacity.current * 0.8;
+    material.emissiveIntensity = opacity.current * 2;
     ref.current.visible = opacity.current > 0.01;
-    // 缓慢旋转增加动感
-    ref.current.rotation.z += delta * 0.05;
   });
 
   return (
-    // 使用一个极扁的圆锥体来模拟中心亮、边缘暗的光晕效果
-    <mesh ref={ref} position={[0, -6.2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <coneGeometry args={[12, 0.5, 64]} />
+    // 修复：去掉 rotation 属性，让它自然平躺（ConeGeometry 默认是直立的，我们用极扁的圆锥模拟地上的光）
+    <mesh ref={ref} position={[0, -6.5, 0]}>
+      {/* 极大的半径，极小的高度，看起来就是一个地上的圆盘 */}
+      <coneGeometry args={[12, 0.2, 64]} />
       <meshStandardMaterial
         color="#FFD700"
         emissive="#FFD700"
@@ -285,15 +288,14 @@ const GroundRadiance = ({ mode }: { mode: string }) => {
         opacity={0}
         roughness={1}
         metalness={0}
-        side={THREE.DoubleSide}
-        depthWrite={false} // 防止遮挡
+        depthWrite={false} // 关键：防止遮挡其他物体
       />
     </mesh>
   );
 };
 
 // ==========================================
-// 5. 组件：照片粒子 (🔥核心交互升级：点击放大🔥)
+// 5. 照片交互组件
 // ==========================================
 interface PhotoProps {
   mode: string;
@@ -317,8 +319,8 @@ const PhotoParticle = ({
   const texture = useLoader(THREE.TextureLoader, url);
   const posProgress = useRef(0);
   const opacityProgress = useRef(0);
-  const selectedProgress = useRef(0); // 新增：选中状态的动画进度
-  const { camera } = useThree(); // 获取相机以计算聚焦位置
+  const selectedProgress = useRef(0);
+  const { camera } = useThree();
 
   const floatData = useMemo(
     () => ({
@@ -339,8 +341,6 @@ const PhotoParticle = ({
 
   useFrame((state, delta) => {
     if (!ref.current || !materialRef.current) return;
-
-    // --- 1. 计算基础状态 (树 vs 散落) ---
     const targetPos = mode === "TREE_SHAPE" ? 1 : 0;
     const targetOpacity = mode === "TREE_SHAPE" ? 0 : 1;
     posProgress.current = THREE.MathUtils.lerp(
@@ -354,9 +354,7 @@ const PhotoParticle = ({
       delta * 3
     );
 
-    // --- 2. 计算选中状态 (聚焦 vs 漂浮) ---
     const targetSelected = isSelected ? 1 : 0;
-    // 选中动画快一点
     selectedProgress.current = THREE.MathUtils.lerp(
       selectedProgress.current,
       targetSelected,
@@ -367,7 +365,6 @@ const PhotoParticle = ({
     const st = selectedProgress.current;
     const time = state.clock.elapsedTime;
 
-    // A. 计算漂浮位置
     const basePos = new THREE.Vector3().lerpVectors(
       data.scatterPos,
       data.treePos,
@@ -389,13 +386,9 @@ const PhotoParticle = ({
           floatIntensity
     );
 
-    // B. 计算聚焦位置 (相机正前方)
-    const focusPos = new THREE.Vector3(0, 0, camera.position.z - 5); // 距离相机5个单位
-
-    // C. 最终位置：在漂浮位置和聚焦位置之间插值
+    const focusPos = new THREE.Vector3(0, 0, camera.position.z - 6); // 稍微离镜头远一点点，防穿模
     ref.current.position.lerpVectors(floatingPos, focusPos, st);
 
-    // 旋转：选中时正对相机，没选中时轻微摇摆
     if (st > 0.1) {
       ref.current.lookAt(camera.position);
     } else {
@@ -405,26 +398,20 @@ const PhotoParticle = ({
       );
     }
 
-    // 缩放：选中时放大 (例如放大到 5倍)，没选中时原始大小 (1.8)
     const targetScale = THREE.MathUtils.lerp(1.8, 5, st);
     ref.current.scale.setScalar(targetScale);
-
-    // 透明度：选中时强制为 1，没选中时跟随模式
     materialRef.current.opacity = THREE.MathUtils.lerp(
       opacityProgress.current,
       1,
       st
     );
-    // 只要有一点点不透明就显示
     ref.current.visible = materialRef.current.opacity > 0.01;
-    // 选中时确保渲染在最上层
     materialRef.current.depthTest = !isSelected;
   });
 
   return (
     <mesh
       ref={ref}
-      // 点击事件：如果已选中就取消，没选中就选中当前索引
       onClick={(e) => {
         e.stopPropagation();
         onSelect(isSelected ? null : index);
@@ -446,36 +433,16 @@ const PhotoParticle = ({
 };
 
 // ==========================================
-// 6. 主程序 (管理选中状态)
+// 6. 主程序
 // ==========================================
 export default function App() {
   const [mode, setMode] = useState<"SCATTERED" | "TREE_SHAPE">("SCATTERED");
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
-  // 🔥 新增状态：记录当前选中的照片索引
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(
     null
   );
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      const newUrls = Array.from(event.target.files).map((file) =>
-        URL.createObjectURL(file)
-      );
-      setImageUrls((prev) => [...prev, ...newUrls]);
-      setMode("SCATTERED");
-      setSelectedPhotoIndex(null); // 上传新照片时重置选中状态
-    }
-  };
-
-  useEffect(() => {
-    return () => imageUrls.forEach((url) => URL.revokeObjectURL(url));
-  }, [imageUrls]);
-
-  // 点击背景时取消选中照片
   const handleBackgroundClick = () => {
-    if (selectedPhotoIndex !== null) {
-      setSelectedPhotoIndex(null);
-    }
+    if (selectedPhotoIndex !== null) setSelectedPhotoIndex(null);
   };
 
   return (
@@ -487,7 +454,7 @@ export default function App() {
         position: "relative",
       }}
     >
-      {/* UI 保持不变 */}
+      {/* UI 界面 */}
       <div
         style={{
           position: "absolute",
@@ -509,7 +476,7 @@ export default function App() {
             textShadow: "0 0 10px rgba(255,215,0,0.3)",
           }}
         >
-          MERRY CHRISTMAS
+          {APP_TITLE}
         </h1>
         <p
           style={{
@@ -519,62 +486,32 @@ export default function App() {
             color: "#E6D2B5",
           }}
         >
-          Upload memories to decorate
+          A gift just for you
         </p>
         <div style={{ display: "flex", gap: "10px" }}>
-          <label
-            style={{
-              padding: "10px 20px",
-              border: "1px solid #FFD700",
-              cursor: "pointer",
-              background: "rgba(255,215,0,0.1)",
-              fontSize: "12px",
-              letterSpacing: "1px",
-              color: "#FFD700",
-              transition: "all 0.3s",
-            }}
-          >
-            + ADD PHOTOS
-            <input
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={handleImageUpload}
-              style={{ display: "none" }}
-            />
-          </label>
           <button
             onClick={() =>
               setMode((m) => (m === "SCATTERED" ? "TREE_SHAPE" : "SCATTERED"))
             }
             style={{
-              padding: "10px 20px",
+              padding: "10px 24px",
               background: "linear-gradient(45deg, #FFD700, #ff9a47)",
               border: "none",
               color: "#000",
               cursor: "pointer",
-              fontSize: "12px",
-              letterSpacing: "1px",
+              fontSize: "14px",
+              letterSpacing: "2px",
               fontWeight: "bold",
               boxShadow: "0 0 15px rgba(255,215,0,0.4)",
+              borderRadius: "30px",
             }}
           >
-            {mode === "SCATTERED" ? "ASSEMBLE TREE" : "SCATTER"}
+            {mode === "SCATTERED" ? "MAKE A WISH" : "SEE MEMORIES"}
           </button>
         </div>
-        <p
-          style={{
-            fontSize: "10px",
-            opacity: 0.6,
-            marginTop: "10px",
-            color: "#E6D2B5",
-          }}
-        >
-          Photos loaded: {imageUrls.length}
-        </p>
       </div>
 
-      {/* 🔥 新增：照片聚焦时的黑色遮罩背景 */}
+      {/* 聚焦时的黑色遮罩 */}
       <div
         onClick={handleBackgroundClick}
         style={{
@@ -593,7 +530,6 @@ export default function App() {
 
       <Canvas dpr={[1, 1.5]} onClick={handleBackgroundClick}>
         <PerspectiveCamera makeDefault position={[0, 0, 18]} fov={50} />
-        {/* 基础背景星空 */}
         <Stars
           radius={100}
           depth={50}
@@ -603,7 +539,6 @@ export default function App() {
           fade
           speed={1}
         />
-        {/* 🔥 新增：动态流星雨 (只在树形态显示) */}
         <ShootingStarsSystem mode={mode} />
 
         <ambientLight intensity={0.2} color="#ffccaa" />
@@ -621,18 +556,16 @@ export default function App() {
         <group position={[0, -3, 0]}>
           <NeedleParticles mode={mode} count={3500} />
           <OrnamentParticles mode={mode} count={1500} />
-          {/* 🔥 新增：树根流光溢彩 */}
           <GroundRadiance mode={mode} />
 
           <Suspense fallback={null}>
-            {imageUrls.map((url, index) => (
+            {MY_PHOTOS.map((url, index) => (
               <PhotoParticle
                 key={url + index}
                 mode={mode}
                 url={url}
                 index={index}
-                total={imageUrls.length}
-                // 🔥 传递选中状态
+                total={MY_PHOTOS.length}
                 isSelected={index === selectedPhotoIndex}
                 onSelect={setSelectedPhotoIndex}
               />
@@ -640,12 +573,11 @@ export default function App() {
           </Suspense>
         </group>
 
-        {/* 照片聚焦时禁止旋转视角 */}
         <OrbitControls
           autoRotate={mode === "TREE_SHAPE" && selectedPhotoIndex === null}
           autoRotateSpeed={0.5}
           enablePan={false}
-          enabled={selectedPhotoIndex === null} // 聚焦时禁用操作
+          enabled={selectedPhotoIndex === null}
           maxPolarAngle={Math.PI / 1.6}
           minDistance={8}
           maxDistance={35}
