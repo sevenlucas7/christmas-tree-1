@@ -6,24 +6,12 @@ import {
   Float,
   PerspectiveCamera,
 } from "@react-three/drei";
-import {
-  EffectComposer,
-  Bloom,
-  Vignette,
-  Noise,
-} from "@react-three/postprocessing";
+import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
 
 // ==========================================
-// 1. 数学与工具算法 (修复版)
+// 1. 核心算法 (保持不变)
 // ==========================================
-
-// 修复：手动定义 damp 函数，解决 Netlify 报错
-function damp(current: number, target: number, lambda: number, delta: number) {
-  // 使用指数衰减实现平滑插值 (Frame-rate independent damping)
-  return THREE.MathUtils.lerp(current, target, 1 - Math.exp(-lambda * delta));
-}
-
 const getPhyllotaxisPosition = (
   index: number,
   total: number,
@@ -32,13 +20,10 @@ const getPhyllotaxisPosition = (
 ) => {
   const angle = index * 137.5 * (Math.PI / 180);
   const normalizedHeight = index / total;
-  const currentRadius =
-    maxRadius * (1 - normalizedHeight) * (0.8 + Math.random() * 0.4);
-
+  const currentRadius = maxRadius * (1 - normalizedHeight);
   const x = Math.cos(angle) * currentRadius;
   const z = Math.sin(angle) * currentRadius;
   const y = normalizedHeight * heightScale - heightScale / 2;
-
   return new THREE.Vector3(x, y, z);
 };
 
@@ -56,62 +41,50 @@ const randomVectorInSphere = (radius: number) => {
 };
 
 // ==========================================
-// 2. 组件：针叶粒子系统
+// 2. 组件：针叶粒子 (保持不变)
 // ==========================================
 const NeedleParticles = ({
   mode,
-  count = 5000,
+  count = 4000,
 }: {
   mode: string;
   count?: number;
 }) => {
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const progress = useRef(0);
 
   const data = useMemo(() => {
     return Array.from({ length: count }, (_, i) => ({
-      treePos: getPhyllotaxisPosition(i, count, 4.5, 10),
-      scatterPos: randomVectorInSphere(18),
-      speed: Math.random() * 0.2 + 0.1,
-      rotationOffset: Math.random() * Math.PI,
-      scale: Math.random() * 0.6 + 0.4,
+      treePos: getPhyllotaxisPosition(i, count, 4, 11),
+      scatterPos: randomVectorInSphere(15),
+      scale: Math.random() * 0.5 + 0.5,
+      rotation: [Math.random() * Math.PI, Math.random() * Math.PI, 0],
     }));
   }, [count]);
 
   useFrame((state, delta) => {
     if (!meshRef.current) return;
-    const targetT = mode === "TREE_SHAPE" ? 1 : 0;
+    const target = mode === "TREE_SHAPE" ? 1 : 0;
+    // 树叶的聚合速度稍微慢一点，更有仪式感
+    progress.current = THREE.MathUtils.lerp(
+      progress.current,
+      target,
+      delta * 2
+    );
+    const t = progress.current;
 
-    data.forEach((particle, i) => {
-      // 目标位置计算
-      const tx = THREE.MathUtils.lerp(
-        particle.scatterPos.x,
-        particle.treePos.x,
-        targetT
-      );
-      const ty = THREE.MathUtils.lerp(
-        particle.scatterPos.y,
-        particle.treePos.y,
-        targetT
-      );
-      const tz = THREE.MathUtils.lerp(
-        particle.scatterPos.z,
-        particle.treePos.z,
-        targetT
-      );
-
-      // 修复：使用自定义的 damp 函数
-      dummy.position.x = damp(dummy.position.x, tx, 1.5, delta);
-      dummy.position.y = damp(dummy.position.y, ty, 1.5, delta);
-      dummy.position.z = damp(dummy.position.z, tz, 1.5, delta);
-
-      const time = state.clock.elapsedTime;
+    data.forEach((d, i) => {
+      const x = THREE.MathUtils.lerp(d.scatterPos.x, d.treePos.x, t);
+      const y = THREE.MathUtils.lerp(d.scatterPos.y, d.treePos.y, t);
+      const z = THREE.MathUtils.lerp(d.scatterPos.z, d.treePos.z, t);
+      dummy.position.set(x, y, z);
       dummy.rotation.set(
-        Math.sin(time * particle.speed * 0.5 + particle.rotationOffset) * 0.2,
-        time * particle.speed + particle.rotationOffset,
-        Math.cos(time * particle.speed * 0.5 + particle.rotationOffset) * 0.2
+        d.rotation[0] + state.clock.elapsedTime * 0.2,
+        d.rotation[1] + state.clock.elapsedTime * 0.1,
+        d.rotation[2]
       );
-      dummy.scale.setScalar(particle.scale);
+      dummy.scale.setScalar(d.scale);
       dummy.updateMatrix();
       meshRef.current.setMatrixAt(i, dummy.matrix);
     });
@@ -120,19 +93,20 @@ const NeedleParticles = ({
 
   return (
     <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
-      <coneGeometry args={[0.04, 0.3, 4]} />
+      <tetrahedronGeometry args={[0.08, 0]} />
       <meshStandardMaterial
-        color="#002419"
-        emissive="#001409"
-        roughness={0.8}
-        metalness={0.2}
+        color="#003322"
+        emissive="#001a11"
+        emissiveIntensity={0.5}
+        roughness={0.4}
+        metalness={0.6}
       />
     </instancedMesh>
   );
 };
 
 // ==========================================
-// 3. 组件：单个照片粒子
+// 3. 组件：照片粒子 (🔥核心修改在这里🔥)
 // ==========================================
 const PhotoParticle = ({
   mode,
@@ -146,61 +120,75 @@ const PhotoParticle = ({
   total: number;
 }) => {
   const ref = useRef<THREE.Mesh>(null!);
+  const materialRef = useRef<THREE.MeshBasicMaterial>(null!);
   const texture = useLoader(THREE.TextureLoader, url);
+  // 位置进度条
+  const posProgress = useRef(0);
+  // 透明度进度条
+  const opacityProgress = useRef(0);
 
   const data = useMemo(
     () => ({
-      treePos: getPhyllotaxisPosition(index, total, 5.5, 11).add(
-        new THREE.Vector3(0, 0.5, 0)
-      ),
-      scatterPos: randomVectorInSphere(20),
-      speed: Math.random() * 0.1 + 0.05,
-      rotationOffset: Math.random() * Math.PI,
+      // 树形态位置：藏在树里面
+      treePos: getPhyllotaxisPosition(index, total, 3.5, 10),
+      // 散落位置：飘在外面
+      scatterPos: randomVectorInSphere(14),
     }),
     [index, total]
   );
 
   useFrame((state, delta) => {
-    if (!ref.current) return;
-    const targetT = mode === "TREE_SHAPE" ? 1 : 0;
+    if (!ref.current || !materialRef.current) return;
 
-    const tx = THREE.MathUtils.lerp(data.scatterPos.x, data.treePos.x, targetT);
-    const ty = THREE.MathUtils.lerp(data.scatterPos.y, data.treePos.y, targetT);
-    const tz = THREE.MathUtils.lerp(data.scatterPos.z, data.treePos.z, targetT);
+    // 目标状态：TREE_SHAPE时，位置进度为1，透明度目标为0（隐藏）
+    //           SCATTERED时，位置进度为0，透明度目标为1（显示）
+    const targetPos = mode === "TREE_SHAPE" ? 1 : 0;
+    const targetOpacity = mode === "TREE_SHAPE" ? 0 : 1;
 
-    // 修复：使用自定义的 damp 函数
-    ref.current.position.x = damp(ref.current.position.x, tx, 1.2, delta);
-    ref.current.position.y = damp(ref.current.position.y, ty, 1.2, delta);
-    ref.current.position.z = damp(ref.current.position.z, tz, 1.2, delta);
-
-    ref.current.lookAt(state.camera.position);
-    ref.current.rotateZ(
-      Math.sin(state.clock.elapsedTime * data.speed + data.rotationOffset) * 0.1
+    // 平滑过渡位置
+    posProgress.current = THREE.MathUtils.lerp(
+      posProgress.current,
+      targetPos,
+      delta * 2
     );
+    // 平滑过渡透明度 (速度快一点，让它更快显现)
+    opacityProgress.current = THREE.MathUtils.lerp(
+      opacityProgress.current,
+      targetOpacity,
+      delta * 3
+    );
+
+    const t = posProgress.current;
+
+    // 更新位置
+    ref.current.position.lerpVectors(data.scatterPos, data.treePos, t);
+    // 始终面向相机
+    ref.current.lookAt(state.camera.position);
+
+    // 更新材质透明度
+    materialRef.current.opacity = opacityProgress.current;
+    // 当完全透明时，设置不可见以提升性能，否则可见
+    ref.current.visible = opacityProgress.current > 0.01;
   });
 
   return (
-    <mesh ref={ref} scale={[1.2, 1.2, 1.2]}>
+    <mesh ref={ref} scale={[1.5, 1.5, 1.5]}>
       <planeGeometry args={[1, 1]} />
-      <meshStandardMaterial
+      {/* 使用 MeshBasicMaterial，不受光照影响，显示照片原色 */}
+      <meshBasicMaterial
+        ref={materialRef}
         map={texture}
-        transparent
         side={THREE.DoubleSide}
-        roughness={0.5}
-        metalness={0.5}
-        emissive="#E6D2B5"
-        emissiveIntensity={0.3}
+        transparent={true} // 必须开启透明
+        opacity={0} // 初始透明度为0
+        depthWrite={false} // 防止透明物体遮挡问题
       />
-      <mesh position={[0, 0, -0.01]} scale={[1.05, 1.05, 1]}>
-        <planeGeometry args={[1, 1]} />
-        <meshStandardMaterial color="#E6D2B5" metalness={1} roughness={0.2} />
-      </mesh>
     </mesh>
   );
 };
 
 // ==========================================
-// 4. 主应用程序
+// 4. 主程序 (保持不变)
 // ==========================================
 export default function App() {
   const [mode, setMode] = useState<"SCATTERED" | "TREE_SHAPE">("SCATTERED");
@@ -212,14 +200,13 @@ export default function App() {
         URL.createObjectURL(file)
       );
       setImageUrls((prev) => [...prev, ...newUrls]);
+      // 上传后自动切换到散落模式展示照片
       setMode("SCATTERED");
     }
   };
 
   useEffect(() => {
-    return () => {
-      imageUrls.forEach((url) => URL.revokeObjectURL(url));
-    };
+    return () => imageUrls.forEach((url) => URL.revokeObjectURL(url));
   }, [imageUrls]);
 
   return (
@@ -227,67 +214,41 @@ export default function App() {
       style={{
         width: "100vw",
         height: "100vh",
-        background: "#000a08",
+        background: "#000500",
         position: "relative",
-        overflow: "hidden",
       }}
     >
       <div
         style={{
           position: "absolute",
+          top: 30,
+          left: 30,
           zIndex: 10,
-          padding: "30px",
           color: "#E6D2B5",
-          fontFamily: '"Times New Roman", serif',
-          display: "flex",
-          flexDirection: "column",
-          gap: "20px",
-          pointerEvents: "none",
+          fontFamily: "serif",
         }}
       >
-        <div>
-          <h1
-            style={{
-              margin: 0,
-              fontWeight: 300,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              fontSize: "2rem",
-            }}
-          >
-            Serene Noel
-          </h1>
-          <p
-            style={{ margin: "10px 0 0 0", opacity: 0.7, fontStyle: "italic" }}
-          >
-            A collaborative memory tree.
-          </p>
-        </div>
-
-        <div
-          style={{
-            pointerEvents: "auto",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-            alignItems: "flex-start",
-          }}
+        <h1 style={{ margin: 0, letterSpacing: "4px", fontSize: "1.8rem" }}>
+          NOEL MEMORIES
+        </h1>
+        <p
+          style={{ margin: "5px 0 20px 0", opacity: 0.6, fontStyle: "italic" }}
         >
+          Upload photos to decorate
+        </p>
+
+        <div style={{ display: "flex", gap: "10px" }}>
           <label
             style={{
-              display: "inline-block",
-              padding: "12px 24px",
-              border: "1px solid rgba(230, 210, 181, 0.5)",
-              color: "#E6D2B5",
+              padding: "10px 20px",
+              border: "1px solid #E6D2B5",
               cursor: "pointer",
-              transition: "all 0.3s",
-              fontSize: "14px",
+              background: "rgba(0,20,10,0.5)",
+              fontSize: "12px",
               letterSpacing: "1px",
-              background: "rgba(0,20,15, 0.6)",
-              backdropFilter: "blur(5px)",
             }}
           >
-            + UPLOAD MEMORIES
+            + ADD PHOTOS
             <input
               type="file"
               multiple
@@ -302,44 +263,39 @@ export default function App() {
               setMode((m) => (m === "SCATTERED" ? "TREE_SHAPE" : "SCATTERED"))
             }
             style={{
-              padding: "12px 24px",
-              background: "rgba(230, 210, 181, 0.1)",
+              padding: "10px 20px",
+              background: "#E6D2B5",
               border: "none",
-              color: "#E6D2B5",
+              color: "#000",
               cursor: "pointer",
-              fontSize: "14px",
-              letterSpacing: "2px",
-              transition: "all 0.5s",
-              borderBottom: "1px solid #E6D2B5",
+              fontSize: "12px",
+              letterSpacing: "1px",
+              fontWeight: "bold",
             }}
           >
-            {mode === "SCATTERED" ? "GATHER MEMORIES" : "RELEASE TO SKY"}
+            {mode === "SCATTERED" ? "ASSEMBLE TREE" : "SCATTER"}
           </button>
-
-          <p style={{ fontSize: "12px", opacity: 0.5 }}>
-            Loaded Photos: {imageUrls.length}
-          </p>
         </div>
+        <p style={{ fontSize: "10px", opacity: 0.5, marginTop: "10px" }}>
+          Photos loaded: {imageUrls.length}
+        </p>
       </div>
 
       <Canvas dpr={[1, 2]}>
-        <PerspectiveCamera makeDefault position={[0, 0, 18]} fov={50} />
-        <color attach="background" args={["#000a08"]} />
-        <fog attach="fog" args={["#000a08", 15, 40]} />
-
-        <ambientLight intensity={0.3} color="#E6D2B5" />
+        <PerspectiveCamera makeDefault position={[0, 0, 16]} fov={50} />
+        <ambientLight intensity={0.5} />
         <spotLight
           position={[10, 20, 10]}
-          angle={0.2}
+          angle={0.3}
           penumbra={1}
-          intensity={8}
-          color="#E6D2B5"
+          intensity={15}
+          color="#ffd700"
           castShadow
         />
-        <pointLight position={[-10, -5, -10]} intensity={2} color="#004d3b" />
+        <pointLight position={[-10, -5, -10]} intensity={5} color="#00ffaa" />
 
-        <group rotation={[0, 0, 0]}>
-          <NeedleParticles mode={mode} count={6000} />
+        <group position={[0, -2, 0]}>
+          <NeedleParticles mode={mode} count={4000} />
           {imageUrls.map((url, index) => (
             <PhotoParticle
               key={url + index}
@@ -351,37 +307,22 @@ export default function App() {
           ))}
         </group>
 
-        <Float
-          speed={1}
-          rotationIntensity={0.1}
-          floatIntensity={0.2}
-          floatingRange={[-0.2, 0.2]}
-        >
-          <mesh visible={false} />
-        </Float>
+        <OrbitControls
+          autoRotate={mode === "TREE_SHAPE"}
+          autoRotateSpeed={1}
+          enablePan={false}
+          maxPolarAngle={Math.PI / 1.6}
+        />
 
         <EffectComposer disableNormalPass>
           <Bloom
-            luminanceThreshold={0.3}
-            luminanceSmoothing={0.8}
-            intensity={0.8}
-            radius={0.7}
+            luminanceThreshold={0.2}
             mipmapBlur
+            intensity={1.2}
+            radius={0.5}
           />
-          <Vignette offset={0.3} darkness={0.6} color="#000a08" />
-          <Noise opacity={0.02} />
+          <Vignette eskil={false} offset={0.1} darkness={1.1} />
         </EffectComposer>
-
-        <OrbitControls
-          enablePan={false}
-          autoRotate={mode === "TREE_SHAPE"}
-          autoRotateSpeed={0.3}
-          minDistance={5}
-          maxDistance={30}
-          minPolarAngle={Math.PI / 3}
-          maxPolarAngle={Math.PI / 1.8}
-        />
-        <Environment preset="night" blur={0.8} background={false} />
       </Canvas>
     </div>
   );
