@@ -3,7 +3,6 @@ import { Canvas, useFrame, useLoader } from "@react-three/fiber";
 import {
   OrbitControls,
   Environment,
-  Float,
   PerspectiveCamera,
 } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
@@ -41,11 +40,11 @@ const randomVectorInSphere = (radius: number) => {
 };
 
 // ==========================================
-// 2. 组件：针叶粒子 (保持不变)
+// 2. 组件：针叶粒子 (🔥核心修改：材质升级🔥)
 // ==========================================
 const NeedleParticles = ({
   mode,
-  count = 4000,
+  count = 4500,
 }: {
   mode: string;
   count?: number;
@@ -56,9 +55,9 @@ const NeedleParticles = ({
 
   const data = useMemo(() => {
     return Array.from({ length: count }, (_, i) => ({
-      treePos: getPhyllotaxisPosition(i, count, 4, 11),
-      scatterPos: randomVectorInSphere(15),
-      scale: Math.random() * 0.5 + 0.5,
+      treePos: getPhyllotaxisPosition(i, count, 4.2, 11.5), // 稍微调整树形，更饱满
+      scatterPos: randomVectorInSphere(16),
+      scale: Math.random() * 0.5 + 0.6, // 稍微增大一点粒子
       rotation: [Math.random() * Math.PI, Math.random() * Math.PI, 0],
     }));
   }, [count]);
@@ -66,11 +65,10 @@ const NeedleParticles = ({
   useFrame((state, delta) => {
     if (!meshRef.current) return;
     const target = mode === "TREE_SHAPE" ? 1 : 0;
-    // 树叶的聚合速度稍微慢一点，更有仪式感
     progress.current = THREE.MathUtils.lerp(
       progress.current,
       target,
-      delta * 2
+      delta * 2.5
     );
     const t = progress.current;
 
@@ -80,8 +78,8 @@ const NeedleParticles = ({
       const z = THREE.MathUtils.lerp(d.scatterPos.z, d.treePos.z, t);
       dummy.position.set(x, y, z);
       dummy.rotation.set(
-        d.rotation[0] + state.clock.elapsedTime * 0.2,
-        d.rotation[1] + state.clock.elapsedTime * 0.1,
+        d.rotation[0] + state.clock.elapsedTime * 0.3, // 转速稍快一点，增加闪烁感
+        d.rotation[1] + state.clock.elapsedTime * 0.15,
         d.rotation[2]
       );
       dummy.scale.setScalar(d.scale);
@@ -93,20 +91,23 @@ const NeedleParticles = ({
 
   return (
     <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
-      <tetrahedronGeometry args={[0.08, 0]} />
+      {/* 使用四面体，反光最锐利 */}
+      <tetrahedronGeometry args={[0.09, 0]} />
+
+      {/* 🔥 材质核心升级 🔥 */}
       <meshStandardMaterial
-        color="#003322"
-        emissive="#001a11"
-        emissiveIntensity={0.5}
-        roughness={0.4}
-        metalness={0.6}
+        color="#004d33" // 基础色：更饱满的祖母绿
+        emissive="#00a676" // 自发光色：明亮的宝石绿
+        emissiveIntensity={2.5} // 强度大幅提升！让它自己发光
+        roughness={0.15} // 非常光滑，像玻璃/金属一样反光
+        metalness={0.7} // 高金属度，反射金色灯光
       />
     </instancedMesh>
   );
 };
 
 // ==========================================
-// 3. 组件：照片粒子 (🔥核心修改在这里🔥)
+// 3. 组件：照片粒子 (保持之前修复好的版本)
 // ==========================================
 const PhotoParticle = ({
   mode,
@@ -122,16 +123,12 @@ const PhotoParticle = ({
   const ref = useRef<THREE.Mesh>(null!);
   const materialRef = useRef<THREE.MeshBasicMaterial>(null!);
   const texture = useLoader(THREE.TextureLoader, url);
-  // 位置进度条
   const posProgress = useRef(0);
-  // 透明度进度条
   const opacityProgress = useRef(0);
 
   const data = useMemo(
     () => ({
-      // 树形态位置：藏在树里面
       treePos: getPhyllotaxisPosition(index, total, 3.5, 10),
-      // 散落位置：飘在外面
       scatterPos: randomVectorInSphere(14),
     }),
     [index, total]
@@ -139,56 +136,42 @@ const PhotoParticle = ({
 
   useFrame((state, delta) => {
     if (!ref.current || !materialRef.current) return;
-
-    // 目标状态：TREE_SHAPE时，位置进度为1，透明度目标为0（隐藏）
-    //           SCATTERED时，位置进度为0，透明度目标为1（显示）
     const targetPos = mode === "TREE_SHAPE" ? 1 : 0;
     const targetOpacity = mode === "TREE_SHAPE" ? 0 : 1;
-
-    // 平滑过渡位置
     posProgress.current = THREE.MathUtils.lerp(
       posProgress.current,
       targetPos,
       delta * 2
     );
-    // 平滑过渡透明度 (速度快一点，让它更快显现)
     opacityProgress.current = THREE.MathUtils.lerp(
       opacityProgress.current,
       targetOpacity,
       delta * 3
     );
-
     const t = posProgress.current;
-
-    // 更新位置
     ref.current.position.lerpVectors(data.scatterPos, data.treePos, t);
-    // 始终面向相机
     ref.current.lookAt(state.camera.position);
-
-    // 更新材质透明度
     materialRef.current.opacity = opacityProgress.current;
-    // 当完全透明时，设置不可见以提升性能，否则可见
     ref.current.visible = opacityProgress.current > 0.01;
   });
 
   return (
     <mesh ref={ref} scale={[1.5, 1.5, 1.5]}>
       <planeGeometry args={[1, 1]} />
-      {/* 使用 MeshBasicMaterial，不受光照影响，显示照片原色 */}
       <meshBasicMaterial
         ref={materialRef}
         map={texture}
         side={THREE.DoubleSide}
-        transparent={true} // 必须开启透明
-        opacity={0} // 初始透明度为0
-        depthWrite={false} // 防止透明物体遮挡问题
+        transparent={true}
+        opacity={0}
+        depthWrite={false}
       />
     </mesh>
   );
 };
 
 // ==========================================
-// 4. 主程序 (保持不变)
+// 4. 主程序 (微调灯光和后处理)
 // ==========================================
 export default function App() {
   const [mode, setMode] = useState<"SCATTERED" | "TREE_SHAPE">("SCATTERED");
@@ -200,7 +183,6 @@ export default function App() {
         URL.createObjectURL(file)
       );
       setImageUrls((prev) => [...prev, ...newUrls]);
-      // 上传后自动切换到散落模式展示照片
       setMode("SCATTERED");
     }
   };
@@ -218,6 +200,7 @@ export default function App() {
         position: "relative",
       }}
     >
+      {/* UI 保持不变 */}
       <div
         style={{
           position: "absolute",
@@ -236,7 +219,6 @@ export default function App() {
         >
           Upload photos to decorate
         </p>
-
         <div style={{ display: "flex", gap: "10px" }}>
           <label
             style={{
@@ -257,7 +239,6 @@ export default function App() {
               style={{ display: "none" }}
             />
           </label>
-
           <button
             onClick={() =>
               setMode((m) => (m === "SCATTERED" ? "TREE_SHAPE" : "SCATTERED"))
@@ -281,21 +262,26 @@ export default function App() {
         </p>
       </div>
 
-      <Canvas dpr={[1, 2]}>
-        <PerspectiveCamera makeDefault position={[0, 0, 16]} fov={50} />
-        <ambientLight intensity={0.5} />
+      <Canvas dpr={[1, 1.5]}>
+        {" "}
+        {/* 稍微降低 DPR 上限以保证手机性能 */}
+        <PerspectiveCamera makeDefault position={[0, 0, 17]} fov={50} />
+        {/* 灯光增强 */}
+        <ambientLight intensity={0.4} color="#00ffaa" />{" "}
+        {/* 增加一点环境绿光 */}
+        {/* 主金色射灯，照亮树的边缘 */}
         <spotLight
-          position={[10, 20, 10]}
-          angle={0.3}
-          penumbra={1}
-          intensity={15}
-          color="#ffd700"
+          position={[12, 15, 12]}
+          angle={0.25}
+          penumbra={0.5}
+          intensity={20}
+          color="#FFD700"
           castShadow
         />
-        <pointLight position={[-10, -5, -10]} intensity={5} color="#00ffaa" />
-
-        <group position={[0, -2, 0]}>
-          <NeedleParticles mode={mode} count={4000} />
+        {/* 底部补光，让树底不至于太黑 */}
+        <pointLight position={[0, -8, 5]} intensity={3} color="#E6D2B5" />
+        <group position={[0, -2.5, 0]}>
+          <NeedleParticles mode={mode} count={4500} />
           {imageUrls.map((url, index) => (
             <PhotoParticle
               key={url + index}
@@ -306,23 +292,26 @@ export default function App() {
             />
           ))}
         </group>
-
         <OrbitControls
           autoRotate={mode === "TREE_SHAPE"}
-          autoRotateSpeed={1}
+          autoRotateSpeed={0.8}
           enablePan={false}
           maxPolarAngle={Math.PI / 1.6}
+          minDistance={8}
+          maxDistance={30}
         />
-
+        {/* 后处理：Bloom 会捕捉到我们增强的自发光，产生辉光效果 */}
         <EffectComposer disableNormalPass>
           <Bloom
-            luminanceThreshold={0.2}
+            luminanceThreshold={0.5} // 只有亮度超过 0.5 的部分才发光
             mipmapBlur
-            intensity={1.2}
-            radius={0.5}
+            intensity={1.5} // 辉光强度
+            radius={0.6} // 辉光半径
           />
-          <Vignette eskil={false} offset={0.1} darkness={1.1} />
+          <Vignette eskil={false} offset={0.1} darkness={1.2} color="#000000" />
         </EffectComposer>
+        {/* 增加一点环境反射，让金属材质更真实 */}
+        <Environment preset="night" blur={0.8} background={false} />
       </Canvas>
     </div>
   );
