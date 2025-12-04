@@ -17,7 +17,7 @@ import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
 
 // -------------------------------------------------------------
-// 🔥 记得在这里填入你的 17 张照片！
+// 🔥 记得在这里填入你的照片文件名！
 // -------------------------------------------------------------
 const MY_PHOTOS = [
   "/photo1.JPG",
@@ -42,7 +42,7 @@ const MY_PHOTOS = [
 const APP_TITLE = "MERRY CHRISTMAS";
 
 // ==========================================
-// 1. 核心算法与工具
+// 1. 核心算法 (保持不变)
 // ==========================================
 const getPhyllotaxisPosition = (
   index: number,
@@ -73,7 +73,6 @@ const randomVectorInSphere = (radius: number) => {
   );
 };
 
-// 🔥 修正：更标准的五角星形状算法
 const createStarShape = (outerRadius: number, innerRadius: number) => {
   const shape = new THREE.Shape();
   const points = 5;
@@ -100,7 +99,7 @@ const getRandomFestiveColor = () =>
   ornamentColors[Math.floor(Math.random() * ornamentColors.length)];
 
 // ==========================================
-// 2. 粒子组件
+// 2. 背景粒子 (🔥 关键优化：raycast={null} 禁用点击检测，防止挡住照片)
 // ==========================================
 const DecorativeParticles = ({
   mode,
@@ -157,7 +156,11 @@ const DecorativeParticles = ({
   });
 
   return (
-    <instancedMesh ref={meshRef} args={[geometry, undefined, count]}>
+    <instancedMesh
+      ref={meshRef}
+      args={[geometry, undefined, count]}
+      raycast={() => null}
+    >
       <meshStandardMaterial
         color="#ffffff"
         roughness={0.2}
@@ -211,16 +214,17 @@ const FoliageParticles = ({
   });
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, count]}
+      raycast={() => null}
+    >
       <tetrahedronGeometry args={[0.1, 0]} />
       <meshStandardMaterial color="#004d33" roughness={0.6} metalness={0.2} />
     </instancedMesh>
   );
 };
 
-// ==========================================
-// 3. 🔥修复版：锐利的五角星 TopStar
-// ==========================================
 const TopStar = ({ mode }: { mode: string }) => {
   const ref = useRef<THREE.Mesh>(null!);
   const progress = useRef(0);
@@ -229,10 +233,7 @@ const TopStar = ({ mode }: { mode: string }) => {
 
   const starGeometry = useMemo(() => {
     const starShape = createStarShape(1.0, 0.382);
-    const extrudeSettings = {
-      depth: 0.4,
-      bevelEnabled: false,
-    };
+    const extrudeSettings = { depth: 0.4, bevelEnabled: false };
     const geo = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
     geo.center();
     return geo;
@@ -253,7 +254,7 @@ const TopStar = ({ mode }: { mode: string }) => {
   });
 
   return (
-    <mesh ref={ref} geometry={starGeometry}>
+    <mesh ref={ref} geometry={starGeometry} raycast={() => null}>
       <meshStandardMaterial
         color="#FFD700"
         emissive="#FFD700"
@@ -266,9 +267,6 @@ const TopStar = ({ mode }: { mode: string }) => {
   );
 };
 
-// ==========================================
-// 4. 其他组件
-// ==========================================
 const ShootingStar = () => {
   const ref = useRef<THREE.Mesh>(null!);
   const [startPos] = useState(
@@ -290,7 +288,12 @@ const ShootingStar = () => {
     }
   });
   return (
-    <mesh ref={ref} position={startPos} rotation={[0, 0, Math.PI / 3]}>
+    <mesh
+      ref={ref}
+      position={startPos}
+      rotation={[0, 0, Math.PI / 3]}
+      raycast={() => null}
+    >
       <coneGeometry args={[0.08, 6, 8]} />
       <meshBasicMaterial color="#ffffff" transparent opacity={0.5} />
     </mesh>
@@ -365,7 +368,11 @@ const GroundParticles = ({ mode }: { mode: string }) => {
     meshRef.current.instanceMatrix.needsUpdate = true;
   });
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, count]}
+      raycast={() => null}
+    >
       <sphereGeometry args={[0.1, 8, 8]} />
       <meshStandardMaterial
         color="#FFD700"
@@ -380,6 +387,9 @@ const GroundParticles = ({ mode }: { mode: string }) => {
   );
 };
 
+// ==========================================
+// 3. 🔥核心组件：PhotoParticle (修复动画逻辑)
+// ==========================================
 interface PhotoProps {
   mode: string;
   url: string;
@@ -388,6 +398,7 @@ interface PhotoProps {
   isSelected: boolean;
   onSelect: (index: number) => void;
 }
+
 const PhotoParticle = ({
   mode,
   url,
@@ -399,10 +410,14 @@ const PhotoParticle = ({
   const ref = useRef<THREE.Mesh>(null!);
   const materialRef = useRef<THREE.MeshBasicMaterial>(null!);
   const texture = useLoader(THREE.TextureLoader, url);
-  const posProgress = useRef(0);
-  const opacityProgress = useRef(0);
-  const selectedProgress = useRef(0);
+
+  // 进度状态
+  const posProgress = useRef(0); // 0 = 散落, 1 = 树形
+  const selectedProgress = useRef(0); // 0 = 未选中, 1 = 选中放大
+
   const { camera } = useThree();
+
+  // 漂浮参数
   const floatData = useMemo(
     () => ({
       speed: Math.random() * 0.2 + 0.1,
@@ -411,9 +426,12 @@ const PhotoParticle = ({
     }),
     []
   );
+
   const data = useMemo(
     () => ({
-      treePos: getPhyllotaxisPosition(index, total, 5.2, 10.5),
+      // 树形位置：放在树的表面
+      treePos: getPhyllotaxisPosition(index, total, 5.0, 10.5),
+      // 散落位置
       scatterPos: randomVectorInSphere(18),
     }),
     [index, total]
@@ -421,31 +439,35 @@ const PhotoParticle = ({
 
   useFrame((state, delta) => {
     if (!ref.current || !materialRef.current) return;
+
+    // 1. 目标状态计算
+    const isTree = mode === "TREE_SHAPE";
+
+    // 2. 动画插值 (Lerp)
     posProgress.current = THREE.MathUtils.lerp(
       posProgress.current,
-      mode === "TREE_SHAPE" ? 1 : 0,
+      isTree ? 1 : 0,
       delta * 2
-    );
-    opacityProgress.current = THREE.MathUtils.lerp(
-      opacityProgress.current,
-      mode === "TREE_SHAPE" ? 0 : 1,
-      delta * 3
     );
     selectedProgress.current = THREE.MathUtils.lerp(
       selectedProgress.current,
       isSelected ? 1 : 0,
       delta * 5
     );
+
     const t = posProgress.current;
-    const st = selectedProgress.current;
+    const st = selectedProgress.current; // 选中动画进度
     const time = state.clock.elapsedTime;
 
+    // 3. 计算基础位置 (在散落和树形之间过渡)
     const basePos = new THREE.Vector3().lerpVectors(
       data.scatterPos,
       data.treePos,
       t
     );
-    const floatIntensity = (1 - t) * opacityProgress.current;
+
+    // 4. 添加漂浮效果 (当组成树时，漂浮幅度减小，当选中时停止漂浮)
+    const floatIntensity = (1 - t * 0.8) * (1 - st);
     const floatingPos = new THREE.Vector3(
       basePos.x +
         Math.sin(time * floatData.speed + floatData.offset) *
@@ -460,31 +482,42 @@ const PhotoParticle = ({
           floatData.radius *
           floatIntensity
     );
-    ref.current.position.lerpVectors(
-      floatingPos,
-      new THREE.Vector3(0, 0, camera.position.z - 6),
-      st
-    );
-    if (st > 0.1) ref.current.lookAt(camera.position);
-    else {
+
+    // 5. 计算聚焦位置 (屏幕正前方)
+    const focusPos = new THREE.Vector3(0, 0, camera.position.z - 6);
+
+    // 6. 最终位置混合：如果选中，就飞向 focusPos，否则在 floatingPos
+    ref.current.position.lerpVectors(floatingPos, focusPos, st);
+
+    // 7. 旋转处理：选中时正对相机，未选中时轻微摇摆
+    if (st > 0.1) {
       ref.current.lookAt(camera.position);
-      ref.current.rotateZ(
-        Math.sin(time * 0.5 + floatData.offset) * 0.05 * floatIntensity
-      );
+      ref.current.rotation.z = 0; // 矫正水平
+    } else {
+      ref.current.lookAt(camera.position);
+      ref.current.rotateZ(Math.sin(time * 0.5 + floatData.offset) * 0.05);
     }
-    ref.current.scale.setScalar(THREE.MathUtils.lerp(1.3, 5, st));
-    materialRef.current.opacity = THREE.MathUtils.lerp(
-      opacityProgress.current,
-      1,
-      st
-    );
-    ref.current.visible = materialRef.current.opacity > 0.01;
+
+    // 8. 🔥 缩放逻辑修改 (关键) 🔥
+    // - 散落状态: 1.5 (大图)
+    // - 树形状态: 0.4 (变成小挂饰)
+    // - 选中状态: 5.0 (特写)
+    let targetScale = THREE.MathUtils.lerp(1.5, 0.4, t); // 基础大小随状态变化
+    targetScale = THREE.MathUtils.lerp(targetScale, 5.0, st); // 如果选中，覆盖之前的缩放
+
+    ref.current.scale.setScalar(targetScale);
+
+    // 确保始终可见
+    materialRef.current.opacity = 1;
+
+    // 选中时放在最上层，避免被其他物体遮挡
     materialRef.current.depthTest = !isSelected;
   });
 
   return (
     <mesh
       ref={ref}
+      // 点击事件
       onClick={(e) => {
         e.stopPropagation();
         onSelect(index);
@@ -498,9 +531,8 @@ const PhotoParticle = ({
         map={texture}
         side={THREE.DoubleSide}
         transparent={true}
-        opacity={0}
-        depthWrite={false}
       />
+      {/* 照片边框，随照片一起缩放 */}
       <mesh position={[0, 0, -0.01]} scale={[1.05, 1.05, 1]}>
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial color="#FFD700" />
@@ -510,7 +542,7 @@ const PhotoParticle = ({
 };
 
 // ==========================================
-// 6. 主程序
+// 4. 主程序
 // ==========================================
 export default function App() {
   const [mode, setMode] = useState<"SCATTERED" | "TREE_SHAPE">("SCATTERED");
@@ -557,7 +589,6 @@ export default function App() {
           Decorate with memories
         </p>
         <div style={{ display: "flex", gap: "10px" }}>
-          {/* 🔥 修复：将样式拆分多行，防止复制时截断报错 */}
           <button
             onClick={() =>
               setMode((m) => (m === "SCATTERED" ? "TREE_SHAPE" : "SCATTERED"))
@@ -577,6 +608,8 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* 聚焦时的黑色背景遮罩 */}
       <div
         onClick={handleBackgroundClick}
         style={{
