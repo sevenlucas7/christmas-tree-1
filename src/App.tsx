@@ -8,20 +8,20 @@ import * as THREE from 'three';
 // 🔥 核心修复：文件名大小写必须严格对应左侧文件列表！
 // -------------------------------------------------------------
 const MY_PHOTOS = [
-    "/photo1.JPG",  // 截图显示是大写 JPG
+    "/photo1.JPG",  
     "/photo2.JPG",
     "/photo3.JPG",
     "/photo4.JPG",
-    "/photo5.JPG",  // 假设这张是小写，请根据实际检查
+    "/photo5.JPG",  
     "/photo6.JPG",
-    "/photo7.jpeg", // 截图显示是 jpeg
+    "/photo7.jpeg", 
     "/photo8.JPG",
     "/photo9.JPG",
     "/photo10.JPG",
     "/photo11.JPG",
-    "/photo12.jpeg", // 截图显示是 jpeg
-    "/photo13.JPG",  // 假设小写
-    "/photo14.JPG",  // 截图显示是小写 jpg
+    "/photo12.jpeg", 
+    "/photo13.JPG",  
+    "/photo14.JPG",  
     "/photo15.JPG",
     "/photo16.JPG",
     "/photo17.JPG",
