@@ -5,32 +5,32 @@ import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 
 // -------------------------------------------------------------
-// 🔥 记得在这里填入你的 17 张照片！
+// 🔥 核心修复：文件名大小写必须严格对应左侧文件列表！
 // -------------------------------------------------------------
 const MY_PHOTOS = [
-    "/photo1.jpg", 
-    "/photo2.jpg", 
-    "/photo3.jpg",
-    "/photo4.jpg",
-    "/photo5.jpg",
-    "/photo6.jpg",
-    "/photo7.jpeg",
-    "/photo8.jpg",
-    "/photo9.jpg",
-    "/photo10.jpg",
-    "/photo11.jpg",
-    "/photo12.jpeg",
-    "/photo13.jpg",
-    "/photo14.jpg",
-    "/photo15.jpg",
-    "/photo16.jpg",
-    "/photo17.jpg",
+    "/photo1.JPG",  // 截图显示是大写 JPG
+    "/photo2.JPG",
+    "/photo3.JPG",
+    "/photo4.JPG",
+    "/photo5.JPG",  // 假设这张是小写，请根据实际检查
+    "/photo6.JPG",
+    "/photo7.jpeg", // 截图显示是 jpeg
+    "/photo8.JPG",
+    "/photo9.JPG",
+    "/photo10.JPG",
+    "/photo11.JPG",
+    "/photo12.jpeg", // 截图显示是 jpeg
+    "/photo13.JPG",  // 假设小写
+    "/photo14.JPG",  // 截图显示是小写 jpg
+    "/photo15.JPG",
+    "/photo16.JPG",
+    "/photo17.JPG",
 ];
 
 const APP_TITLE = "MERRY CHRISTMAS";
 
 // ==========================================
-// 1. 核心算法与工具
+// 1. 核心算法 (保持不变)
 // ==========================================
 const getPhyllotaxisPosition = (index: number, total: number, maxRadius: number, heightScale: number) => {
     const angle = index * 137.5 * (Math.PI / 180);
@@ -55,17 +55,16 @@ const randomVectorInSphere = (radius: number) => {
     );
 };
 
-// 🔥 修正：更标准的五角星形状算法
+// 🔥 修正：严格的五角星数学形状
 const createStarShape = (outerRadius: number, innerRadius: number) => {
     const shape = new THREE.Shape();
-    // 5个角，总共10个点
-    for (let i = 0; i < 10; i++) {
-        // 角度计算
-        const angle = i * Math.PI / 5; 
-        const r = (i % 2 === 0) ? outerRadius : innerRadius;
-        // 这里的计算确保星星尖角朝上
-        const x = Math.sin(angle) * r;
-        const y = Math.cos(angle) * r;
+    const points = 5;
+    // 这里的 -Math.PI / 2 是为了让星星正立，尖角朝上
+    for (let i = 0; i < points * 2; i++) {
+        const angle = (i * Math.PI) / points - Math.PI / 2;
+        const radius = i % 2 === 0 ? outerRadius : innerRadius;
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius;
         if (i === 0) shape.moveTo(x, y);
         else shape.lineTo(x, y);
     }
@@ -77,7 +76,7 @@ const ornamentColors = [new THREE.Color("#ff3333"), new THREE.Color("#FFD700"), 
 const getRandomFestiveColor = () => ornamentColors[Math.floor(Math.random() * ornamentColors.length)];
 
 // ==========================================
-// 2. 粒子组件 (针叶、彩球、礼物)
+// 2. 粒子组件
 // ==========================================
 const DecorativeParticles = ({ mode, count, geometry, materialScale, extraSpread = 0 }: any) => {
     const meshRef = useRef<THREE.InstancedMesh>(null!);
@@ -151,23 +150,20 @@ const FoliageParticles = ({ mode, count = 2000 }: { mode: string, count?: number
 };
 
 // ==========================================
-// 3. 🔥修复版：标准的锐利五角星 TopStar
+// 3. 🔥修复版：锐利的五角星 TopStar
 // ==========================================
 const TopStar = ({ mode }: { mode: string }) => {
     const ref = useRef<THREE.Mesh>(null!);
     const progress = useRef(0);
-    const treePos = new THREE.Vector3(0, 12 / 2 + 1.0, 0); 
+    const treePos = new THREE.Vector3(0, 12 / 2 + 0.8, 0); 
     const scatterPos = new THREE.Vector3(0, 25, 0);
 
     const starGeometry = useMemo(() => {
-        // 🔥 关键调整：外径0.8，内径0.38 (接近黄金比例)，这样星星更尖锐
-        const starShape = createStarShape(0.8, 0.38);
+        // 🔥 核心修正：内半径 0.382 (黄金比例)，保证星星是尖锐的
+        const starShape = createStarShape(1.0, 0.382);
         const extrudeSettings = {
-            depth: 0.4, // 增加一点厚度
-            bevelEnabled: true,
-            bevelThickness: 0.1, // 倒角厚度
-            bevelSize: 0.02, // 倒角宽度减小，防止变成圆角
-            bevelSegments: 3
+            depth: 0.4, 
+            bevelEnabled: false, // 🔥 关键：关闭倒角，让边缘像刀锋一样锐利
         };
         const geo = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
         geo.center(); 
@@ -178,9 +174,9 @@ const TopStar = ({ mode }: { mode: string }) => {
         if (!ref.current) return;
         progress.current = THREE.MathUtils.lerp(progress.current, mode === 'TREE_SHAPE' ? 1 : 0, delta * 2);
         ref.current.position.lerpVectors(scatterPos, treePos, progress.current);
-        ref.current.rotation.y += delta * 0.8; // 转快一点
+        ref.current.rotation.y += delta * 0.8;
         const scale = progress.current > 0.1 ? progress.current : 0.1;
-        ref.current.scale.setScalar(scale);
+        ref.current.scale.setScalar(scale * 0.8); // 稍微缩小一点适配树顶
         ref.current.visible = progress.current > 0.01;
     });
 
@@ -189,18 +185,17 @@ const TopStar = ({ mode }: { mode: string }) => {
             <meshStandardMaterial 
                 color="#FFD700" 
                 emissive="#FFD700" 
-                emissiveIntensity={3} // 发光更强
-                roughness={0.0} 
+                emissiveIntensity={2} 
+                roughness={0.1} 
                 metalness={1} 
             />
-            {/* 增加一个点光源照亮周围 */}
-            <pointLight color="#FFD700" intensity={10} distance={6} />
+            <pointLight color="#FFD700" intensity={8} distance={6} />
         </mesh>
     );
 };
 
 // ==========================================
-// 4. 其他组件 (流星、地面、照片)
+// 4. 其他组件
 // ==========================================
 const ShootingStar = () => {
     const ref = useRef<THREE.Mesh>(null!);
@@ -327,41 +322,4 @@ export default function App() {
                 <h1 style={{ margin: 0, letterSpacing: '4px', fontSize: '1.8rem' }}>{APP_TITLE}</h1>
                 <p style={{ margin: '5px 0 20px 0', opacity: 0.6, fontStyle: 'italic' }}>Decorate with memories</p>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                    <button onClick={() => setMode(m => m === 'SCATTERED' ? 'TREE_SHAPE' : 'SCATTERED')} style={{ padding: '10px 20px', background: '#E6D2B5', border: 'none', color: '#000', cursor: 'pointer', fontSize: '12px', letterSpacing: '1px', fontWeight: 'bold' }}>
-                        {mode === 'SCATTERED' ? 'ASSEMBLE TREE' : 'SCATTER'}
-                    </button>
-                </div>
-            </div>
-            <div onClick={handleBackgroundClick} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.8)', opacity: selectedPhotoIndex !== null ? 1 : 0, pointerEvents: selectedPhotoIndex !== null ? 'auto' : 'none', transition: 'opacity 0.5s', zIndex: 5 }} />
-
-            <Canvas dpr={[1, 2]} onClick={handleBackgroundClick}>
-                <PerspectiveCamera makeDefault position={[0, 0, 18]} fov={50} />
-                <Stars radius={100} depth={50} count={3000} factor={4} saturation={0} fade speed={1} />
-                <ShootingStarsSystem mode={mode} />
-                <ambientLight intensity={0.3} color="#ffddaa" />
-                <spotLight position={[10, 20, 10]} angle={0.3} penumbra={1} intensity={15} color="#FFD700" castShadow />
-                <pointLight position={[-10, 5, -10]} intensity={5} color="#ff3333" />
-
-                <group position={[0, -1, 0]}>
-                    <TopStar mode={mode} />
-                    <FoliageParticles mode={mode} count={2000} />
-                    <DecorativeParticles mode={mode} count={1500} geometry={sphereGeo} materialScale={0.3} extraSpread={0.2} />
-                    <DecorativeParticles mode={mode} count={1000} geometry={boxGeo} materialScale={0.4} extraSpread={0.5} />
-                    <GroundParticles mode={mode} />
-                    <Suspense fallback={null}>
-                        {MY_PHOTOS.map((url, index) => (
-                            <PhotoParticle key={url + index} mode={mode} url={url} index={index} total={MY_PHOTOS.length} isSelected={index === selectedPhotoIndex} onSelect={handlePhotoSelect} />
-                        ))}
-                    </Suspense>
-                </group>
-
-                <OrbitControls autoRotate={mode === 'TREE_SHAPE' && selectedPhotoIndex === null} autoRotateSpeed={0.5} enablePan={false} enabled={selectedPhotoIndex === null} maxPolarAngle={Math.PI / 1.6} />
-                <EffectComposer disableNormalPass>
-                    <Bloom luminanceThreshold={0.8} mipmapBlur intensity={1.5} radius={0.4} />
-                    <Vignette eskil={false} offset={0.1} darkness={1.1} />
-                </EffectComposer>
-                <Environment preset="city" blur={0.8} background={false}/>
-            </Canvas>
-        </div>
-    );
-}
+                    <button onClick={() => setMode(m => m === 'SCATTERED' ? 'TREE_SHAPE' : 'SCATTERED')} style={{ padding: '10px 20px', background: '#E6D2B5', border: 'none', color: '#00
