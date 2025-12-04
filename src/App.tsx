@@ -17,7 +17,7 @@ import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
 
 // -------------------------------------------------------------
-// 🔥 记得在这里填入你的照片文件名！
+// 🔥 记得在这里填入你的 17 张照片！
 // -------------------------------------------------------------
 const MY_PHOTOS = [
   "/photo1.JPG",
@@ -99,7 +99,7 @@ const getRandomFestiveColor = () =>
   ornamentColors[Math.floor(Math.random() * ornamentColors.length)];
 
 // ==========================================
-// 2. 背景粒子 (🔥 关键优化：raycast={null} 禁用点击检测，防止挡住照片)
+// 2. 装饰粒子 (🔥 关键：全部禁用 raycast)
 // ==========================================
 const DecorativeParticles = ({
   mode,
@@ -311,6 +311,7 @@ const ShootingStarsSystem = ({ mode }: { mode: string }) => {
   );
 };
 
+// 🔥 关键：地面粒子之前挡住了点击，现在加上 raycast={null}
 const GroundParticles = ({ mode }: { mode: string }) => {
   const count = 1200;
   const meshRef = useRef<THREE.InstancedMesh>(null!);
@@ -388,7 +389,7 @@ const GroundParticles = ({ mode }: { mode: string }) => {
 };
 
 // ==========================================
-// 3. 🔥核心组件：PhotoParticle (修复动画逻辑)
+// 3. 🔥核心组件：PhotoParticle
 // ==========================================
 interface PhotoProps {
   mode: string;
@@ -412,12 +413,11 @@ const PhotoParticle = ({
   const texture = useLoader(THREE.TextureLoader, url);
 
   // 进度状态
-  const posProgress = useRef(0); // 0 = 散落, 1 = 树形
-  const selectedProgress = useRef(0); // 0 = 未选中, 1 = 选中放大
+  const posProgress = useRef(0);
+  const selectedProgress = useRef(0);
 
   const { camera } = useThree();
 
-  // 漂浮参数
   const floatData = useMemo(
     () => ({
       speed: Math.random() * 0.2 + 0.1,
@@ -429,9 +429,7 @@ const PhotoParticle = ({
 
   const data = useMemo(
     () => ({
-      // 树形位置：放在树的表面
       treePos: getPhyllotaxisPosition(index, total, 5.0, 10.5),
-      // 散落位置
       scatterPos: randomVectorInSphere(18),
     }),
     [index, total]
@@ -440,10 +438,7 @@ const PhotoParticle = ({
   useFrame((state, delta) => {
     if (!ref.current || !materialRef.current) return;
 
-    // 1. 目标状态计算
     const isTree = mode === "TREE_SHAPE";
-
-    // 2. 动画插值 (Lerp)
     posProgress.current = THREE.MathUtils.lerp(
       posProgress.current,
       isTree ? 1 : 0,
@@ -456,17 +451,15 @@ const PhotoParticle = ({
     );
 
     const t = posProgress.current;
-    const st = selectedProgress.current; // 选中动画进度
+    const st = selectedProgress.current;
     const time = state.clock.elapsedTime;
 
-    // 3. 计算基础位置 (在散落和树形之间过渡)
+    // 计算基础位置
     const basePos = new THREE.Vector3().lerpVectors(
       data.scatterPos,
       data.treePos,
       t
     );
-
-    // 4. 添加漂浮效果 (当组成树时，漂浮幅度减小，当选中时停止漂浮)
     const floatIntensity = (1 - t * 0.8) * (1 - st);
     const floatingPos = new THREE.Vector3(
       basePos.x +
@@ -483,41 +476,33 @@ const PhotoParticle = ({
           floatIntensity
     );
 
-    // 5. 计算聚焦位置 (屏幕正前方)
+    // 聚焦位置
     const focusPos = new THREE.Vector3(0, 0, camera.position.z - 6);
-
-    // 6. 最终位置混合：如果选中，就飞向 focusPos，否则在 floatingPos
     ref.current.position.lerpVectors(floatingPos, focusPos, st);
 
-    // 7. 旋转处理：选中时正对相机，未选中时轻微摇摆
+    // 旋转
     if (st > 0.1) {
       ref.current.lookAt(camera.position);
-      ref.current.rotation.z = 0; // 矫正水平
+      ref.current.rotation.z = 0;
     } else {
       ref.current.lookAt(camera.position);
       ref.current.rotateZ(Math.sin(time * 0.5 + floatData.offset) * 0.05);
     }
 
-    // 8. 🔥 缩放逻辑修改 (关键) 🔥
-    // - 散落状态: 1.5 (大图)
-    // - 树形状态: 0.4 (变成小挂饰)
-    // - 选中状态: 5.0 (特写)
-    let targetScale = THREE.MathUtils.lerp(1.5, 0.4, t); // 基础大小随状态变化
-    targetScale = THREE.MathUtils.lerp(targetScale, 5.0, st); // 如果选中，覆盖之前的缩放
-
+    // 缩放逻辑：树形时变小，散落时变大，选中时特大
+    let targetScale = THREE.MathUtils.lerp(1.5, 0.4, t);
+    targetScale = THREE.MathUtils.lerp(targetScale, 5.0, st);
     ref.current.scale.setScalar(targetScale);
 
-    // 确保始终可见
     materialRef.current.opacity = 1;
-
-    // 选中时放在最上层，避免被其他物体遮挡
-    materialRef.current.depthTest = !isSelected;
+    materialRef.current.depthTest = !isSelected; // 选中时不进行深度测试，保证永远在最前
   });
 
   return (
     <mesh
       ref={ref}
-      // 点击事件
+      // 🔥 确保渲染顺序在选中时为最高，防止被其他透明物体遮挡
+      renderOrder={isSelected ? 999 : 1}
       onClick={(e) => {
         e.stopPropagation();
         onSelect(index);
@@ -532,7 +517,6 @@ const PhotoParticle = ({
         side={THREE.DoubleSide}
         transparent={true}
       />
-      {/* 照片边框，随照片一起缩放 */}
       <mesh position={[0, 0, -0.01]} scale={[1.05, 1.05, 1]}>
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial color="#FFD700" />
@@ -567,6 +551,7 @@ export default function App() {
         position: "relative",
       }}
     >
+      {/* UI: 确保 pointer-events 设置正确，让点击能穿透到 Canvas */}
       <div
         style={{
           position: "absolute",
@@ -575,7 +560,7 @@ export default function App() {
           zIndex: 10,
           color: "#E6D2B5",
           fontFamily: "serif",
-          pointerEvents: selectedPhotoIndex !== null ? "none" : "auto",
+          pointerEvents: selectedPhotoIndex !== null ? "none" : "none", // 整个容器不响应点击
           opacity: selectedPhotoIndex !== null ? 0.3 : 1,
           transition: "all 0.5s",
         }}
@@ -588,7 +573,9 @@ export default function App() {
         >
           Decorate with memories
         </p>
-        <div style={{ display: "flex", gap: "10px" }}>
+        <div style={{ display: "flex", gap: "10px", pointerEvents: "auto" }}>
+          {" "}
+          {/* 只有按钮响应点击 */}
           <button
             onClick={() =>
               setMode((m) => (m === "SCATTERED" ? "TREE_SHAPE" : "SCATTERED"))
@@ -609,7 +596,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* 聚焦时的黑色背景遮罩 */}
       <div
         onClick={handleBackgroundClick}
         style={{
